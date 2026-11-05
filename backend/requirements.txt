@@ -1,0 +1,5 @@
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.30
+sqlmodel>=0.0.22
+matplotlib>=3.9
+reportlab>=4.2
