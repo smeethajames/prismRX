@@ -472,7 +472,10 @@ export interface components {
         CheckInEntry: {
             /** Symptom */
             symptom: string;
-            /** Severity */
+            /**
+             * Severity
+             * @description 1 = low, 10 = worst. Leave a symptom out if it wasn't noticed.
+             */
             severity: number;
             /** Notes */
             notes?: string | null;
@@ -935,6 +938,11 @@ export interface components {
             date: string;
             /** Value */
             value: number;
+            /**
+             * Noticed
+             * @default true
+             */
+            noticed: boolean;
             /** Rolling Avg 7D */
             rolling_avg_7d?: number | null;
         };
@@ -1013,7 +1021,7 @@ export interface components {
             symptom: string;
             /**
              * Severity
-             * @description 0 = none, 10 = worst imaginable
+             * @description 1 = low, 10 = worst. Leave a symptom out if it wasn't noticed.
              */
             severity: number;
             /**
@@ -1033,7 +1041,7 @@ export interface components {
             symptom: string;
             /**
              * Severity
-             * @description 0 = none, 10 = worst imaginable
+             * @description 1 = low, 10 = worst. 0 only appears on entries logged before the 1-10 scale.
              */
             severity: number;
             /**
@@ -1073,10 +1081,14 @@ export interface components {
             label: string;
             /** Category */
             category: string;
-            /** Days Logged */
-            days_logged: number;
+            /** Days Tracked */
+            days_tracked: number;
+            /** Days Noticed */
+            days_noticed: number;
             /** Average */
             average: number;
+            /** Average When Noticed */
+            average_when_noticed: number | null;
             /** Max */
             max: number;
             /** Min */

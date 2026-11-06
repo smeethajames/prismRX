@@ -128,16 +128,21 @@ def render_pdf(report: SummaryReport) -> bytes:
             img = _chart(png)
             if img:
                 story += [img, Spacer(1, 6)]
-        rows = [["Symptom", "Avg", "Max", "Days logged", "First week", "Last week", "Trend"]]
+        rows = [["Symptom", "Avg", "Avg when noticed", "Max", "Days noticed", "First week", "Last week", "Trend"]]
         for s in sym:
-            rows.append([s.label, f"{s.average:g}", str(s.max), str(s.days_logged),
+            rows.append([s.label, f"{s.average:g}", _fmt(s.average_when_noticed), str(s.max),
+                         f"{s.days_noticed} / {s.days_tracked}",
                          _fmt(s.first_week_avg), _fmt(s.last_week_avg),
                          DIRECTION_LABEL[s.direction]
                          + (f"; flare ~{s.peak_date:%b %d}" if s.flare else "")])
-        story.append(_table(rows, [1.9 * inch, 0.6 * inch, 0.6 * inch, 0.9 * inch, 0.9 * inch, 0.9 * inch, 1.2 * inch]))
-        story.append(Paragraph("Severity is self-reported on a 0-10 scale (0 = none). "
-                               "Trend = slope of daily entries across the period. "
-                               "Flare = the 7-day average rose 2+ points above both the first and last week.", SMALL))
+        story.append(_table(rows, [1.55 * inch, 0.5 * inch, 0.8 * inch, 0.45 * inch, 0.8 * inch,
+                                   0.7 * inch, 0.7 * inch, 1.5 * inch]))
+        story.append(Paragraph(
+            "Severity is self-reported on a 1-10 scale (1 = low, 10 = worst). Patients leave a symptom blank "
+            "when they don't notice it, so on check-in days a blank counts as 0 (not noticed). "
+            "Avg includes those days; Avg when noticed does not. Days noticed = days rated / check-in days "
+            "while the symptom was tracked. Trend = slope of daily values across the period. "
+            "Flare = the 7-day average rose 2+ points above both the first and last week.", SMALL))
     else:
         story.append(Paragraph("No symptoms were logged in this period.", BODY))
 

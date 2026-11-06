@@ -99,7 +99,8 @@ def _symptom_key(v: str) -> str:
 class SymptomLogBase(SQLModel):
     symptom: str = Field(index=True, min_length=1, max_length=64,
                          description="Catalog key (see /catalog/symptoms) or a custom symptom")
-    severity: int = Field(ge=0, le=10, description="0 = none, 10 = worst imaginable")
+    # Stored/returned range stays 0-10 so older entries (logged before the 1-10 change) still load.
+    severity: int = Field(ge=0, le=10, description="1 = low, 10 = worst. 0 only appears on entries logged before the 1-10 scale.")
     logged_on: date = Field(index=True)
     notes: str | None = Field(default=None, max_length=1000)
 
@@ -116,7 +117,13 @@ class SymptomLog(SymptomLogBase, table=True):
     updated_at: NaiveDatetime = Field(default_factory=utcnow)
 
 
+# New entries use 1-10. Not noticing a symptom = not logging it (there is no 0).
+NEW_SEVERITY = {"ge": 1, "le": 10, "description": "1 = low, 10 = worst. Leave a symptom out if it wasn't noticed."}
+
+
 class SymptomLogCreate(SymptomLogBase):
+    severity: int = Field(**NEW_SEVERITY)
+
     @field_validator("symptom")
     @classmethod
     def normalize_symptom(cls, v: str) -> str:
@@ -131,13 +138,13 @@ class SymptomLogRead(SymptomLogBase):
 
 
 class SymptomLogUpdate(SQLModel):
-    severity: int | None = Field(default=None, ge=0, le=10)
+    severity: int | None = Field(default=None, ge=1, le=10)
     notes: str | None = Field(default=None, max_length=1000)
 
 
 class CheckInEntry(SQLModel):
     symptom: str = Field(min_length=1, max_length=64)
-    severity: int = Field(ge=0, le=10)
+    severity: int = Field(**NEW_SEVERITY)
     notes: str | None = Field(default=None, max_length=1000)
 
     @field_validator("symptom")

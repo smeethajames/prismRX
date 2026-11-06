@@ -66,7 +66,7 @@ Configuration uses environment variables:
 | Data | Notes |
 |---|---|
 | **Patient profile** | Diagnosis, surgery type and date, radioactive iodine (RAI) date, care team. "Days since surgery" appears on the report. |
-| **Symptoms** | Severity from 0 to 10, one reading per symptom per day. The catalog has 20 thyroid-specific symptoms in five groups: possible under-replacement, possible over-replacement, low calcium, surgical site, and general. Custom symptoms are also accepted. |
+| **Symptoms** | Severity from 1 (low) to 10 (worst), one reading per symptom per day. A symptom the patient didn't notice is left blank; there is no 0. The catalog has 20 thyroid-specific symptoms in five groups: possible under-replacement, possible over-replacement, low calcium, surgical site, and general. Custom symptoms are also accepted. |
 | **Medications** | Dose, unit, scheduled times (`"HH:MM"`), category (`thyroid_hormone`, `calcium`, `vitamin_d`, `other`), start and end dates. |
 | **Dose logs** | Each dose is marked `taken`, `skipped` or `missed` with a timestamp. Adherence is calculated against the schedule. |
 | **Labs** | TSH, free T4/T3, thyroglobulin, Tg antibodies, calcium, PTH and vitamin D, with optional reference ranges. |

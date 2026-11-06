@@ -45,7 +45,7 @@ def test_symptom_trend_direction(client, patient_id):
         client.post(f"{API}/patients/{patient_id}/check-ins", json={
             "logged_on": str(start + timedelta(days=i)),
             "entries": [{"symptom": "fatigue", "severity": max(0, 8 - i // 2)},
-                        {"symptom": "palpitations", "severity": min(10, i // 2)},
+                        {"symptom": "palpitations", "severity": max(1, min(10, i // 2))},
                         {"symptom": "headache", "severity": 3}],
         })
     r = client.get(f"{API}/patients/{patient_id}/trends/symptoms",
@@ -54,7 +54,7 @@ def test_symptom_trend_direction(client, patient_id):
     assert by_key["fatigue"]["direction"] == "improving"
     assert by_key["palpitations"]["direction"] == "worsening"
     assert by_key["headache"]["direction"] == "stable"
-    assert by_key["fatigue"]["days_logged"] == 14
+    assert by_key["fatigue"]["days_noticed"] == by_key["fatigue"]["days_tracked"] == 14
     assert len(by_key["fatigue"]["series"]) == 14
 
 
@@ -163,3 +163,98 @@ def test_all_notes_kept_in_summary(client, patient_id):
                    params={"start": "2026-01-01", "end": "2026-02-09"}).json()
     assert len(s["notable_entries"]) == 40
     assert s["notable_entries"][0]["notes"] == "note 0"
+
+
+def test_severity_zero_rejected_for_new_entries(client, patient_id):
+    """The scale is 1-10; a symptom that wasn't noticed is left out, not logged as 0."""
+    base = f"{API}/patients/{patient_id}"
+    assert client.post(f"{base}/symptoms", json={"symptom": "fatigue", "severity": 0,
+                                                 "logged_on": "2026-10-01"}).status_code == 422
+    assert client.post(f"{base}/check-ins", json={"logged_on": "2026-10-01", "entries": [
+        {"symptom": "fatigue", "severity": 0}]}).status_code == 422
+    log = client.post(f"{base}/symptoms", json={"symptom": "fatigue", "severity": 1,
+                                                "logged_on": "2026-10-01"}).json()
+    assert client.patch(f"{base}/symptoms/{log['id']}", json={"severity": 0}).status_code == 422
+
+
+def test_legacy_zero_entries_still_load(client, session, patient_id):
+    """Entries stored before the 1-10 change may hold 0; reading them must not break."""
+    from app.models import SymptomLog
+
+    session.add(SymptomLog(patient_id=patient_id, symptom="tingling", severity=0, logged_on=date(2026, 9, 1)))
+    session.commit()
+    r = client.get(f"{API}/patients/{patient_id}/symptoms")
+    assert r.status_code == 200 and r.json()[0]["severity"] == 0
+    assert client.get(f"{API}/patients/{patient_id}/reports/pdf",
+                      params={"start": "2026-09-01", "end": "2026-09-30"}).status_code == 200
+
+
+def _checkin(client, pid, day, **ratings):
+    r = client.post(f"{API}/patients/{pid}/check-ins", json={
+        "logged_on": str(day), "entries": [{"symptom": k, "severity": v} for k, v in ratings.items()]})
+    assert r.status_code == 201
+
+
+def _trend(client, pid, start, end):
+    r = client.get(f"{API}/patients/{pid}/trends/symptoms", params={"start": str(start), "end": str(end)}).json()
+    return {s["symptom"]: s for s in r["symptoms"]}
+
+
+def test_blank_on_checkin_day_counts_as_not_noticed(client, patient_id):
+    """Tingling clears up after a week: the blanks must show as improvement, not vanish."""
+    start = date(2026, 10, 1)
+    for i in range(14):
+        ratings = {"fatigue": 4}
+        if i < 7:
+            ratings["tingling"] = 5
+        _checkin(client, patient_id, start + timedelta(days=i), **ratings)
+    t = _trend(client, patient_id, start, start + timedelta(days=13))["tingling"]
+    assert (t["days_noticed"], t["days_tracked"]) == (7, 14)
+    assert t["average_when_noticed"] == 5.0
+    assert t["average"] == 2.5
+    assert t["last_week_avg"] == 0.0
+    assert t["direction"] == "improving"
+    blanks = [p for p in t["series"] if not p["noticed"]]
+    assert len(blanks) == 7 and all(p["value"] == 0 for p in blanks)
+
+
+def test_days_without_checkin_stay_missing(client, patient_id):
+    start = date(2026, 10, 1)
+    for i in (0, 1, 5, 6):  # no check-in on days 2-4
+        _checkin(client, patient_id, start + timedelta(days=i), fatigue=6)
+    t = _trend(client, patient_id, start, start + timedelta(days=6))["fatigue"]
+    assert t["days_tracked"] == 4
+    assert [p["date"] for p in t["series"]] == ["2026-10-01", "2026-10-02", "2026-10-06", "2026-10-07"]
+
+
+def test_symptom_not_zero_filled_before_first_rating(client, patient_id):
+    """A symptom first noticed mid-period wasn't 'not noticed' before the patient tracked it."""
+    start = date(2026, 10, 1)
+    for i in range(10):
+        ratings = {"fatigue": 3}
+        if i >= 6:
+            ratings["palpitations"] = 6
+        _checkin(client, patient_id, start + timedelta(days=i), **ratings)
+    t = _trend(client, patient_id, start, start + timedelta(days=9))["palpitations"]
+    assert t["days_tracked"] == 4 and t["average"] == 6.0
+
+
+def test_tracking_stops_after_window(client, patient_id):
+    """Blanks count as not noticed only within 14 days of the last rating."""
+    start = date(2026, 10, 1)
+    _checkin(client, patient_id, start, fatigue=3, hoarseness=4)
+    for i in range(1, 30):
+        _checkin(client, patient_id, start + timedelta(days=i), fatigue=3)
+    t = _trend(client, patient_id, start, start + timedelta(days=29))["hoarseness"]
+    assert t["days_tracked"] == 15  # the rated day + 14 days of "not noticed"
+    assert t["days_noticed"] == 1
+
+
+def test_symptom_filter_uses_all_checkins(client, patient_id):
+    start = date(2026, 10, 1)
+    _checkin(client, patient_id, start, fatigue=3, tingling=5)
+    _checkin(client, patient_id, start + timedelta(days=1), fatigue=3)
+    r = client.get(f"{API}/patients/{patient_id}/trends/symptoms",
+                   params={"start": "2026-10-01", "end": "2026-10-02", "symptom": "tingling"}).json()
+    assert [s["symptom"] for s in r["symptoms"]] == ["tingling"]
+    assert r["symptoms"][0]["days_tracked"] == 2

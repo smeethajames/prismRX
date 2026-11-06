@@ -12,6 +12,7 @@ from datetime import date, datetime, time, timedelta
 from statistics import mean
 
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlmodel import Session, select
 
 from .. import catalog
@@ -39,7 +40,8 @@ FLARE_THRESHOLD = 2.0
 # --------------------------------------------------------------------- schemas
 class SeriesPoint(BaseModel):
     date: date
-    value: float
+    value: float  # 1-10 when noticed; 0 = checked in that day but left this symptom blank
+    noticed: bool = True
     rolling_avg_7d: float | None = None
 
 
@@ -47,8 +49,10 @@ class SymptomTrend(BaseModel):
     symptom: str
     label: str
     category: str
-    days_logged: int
-    average: float
+    days_tracked: int  # check-in days since the patient started tracking this symptom
+    days_noticed: int  # of those, days the symptom was actually rated
+    average: float  # over tracked days, with not-noticed days counted as 0
+    average_when_noticed: float | None  # over noticed days only
     max: int
     min: int
     first_week_avg: float | None
@@ -170,6 +174,11 @@ def _window_avg(points: list[tuple[date, float]], lo: date, hi: date) -> float |
 
 
 # ---------------------------------------------------------------- symptom trends
+# A symptom stays "tracked" (blank check-in days count as not noticed) while it was
+# rated within this many days. Matches how long the app keeps it on the check-in form.
+TRACKING_WINDOW_DAYS = 14
+
+
 def symptom_trends(
     session: Session,
     patient_id: int,
@@ -177,27 +186,64 @@ def symptom_trends(
     end: date,
     symptoms: list[str] | None = None,
 ) -> SymptomTrendsResponse:
-    stmt = select(SymptomLog).where(
-        SymptomLog.patient_id == patient_id,
-        SymptomLog.logged_on >= start,
-        SymptomLog.logged_on <= end,
-    )
-    if symptoms:
-        stmt = stmt.where(SymptomLog.symptom.in_([catalog.normalize_symptom_key(s) for s in symptoms]))
-    logs = session.exec(stmt.order_by(SymptomLog.logged_on)).all()
+    """Per-symptom series over the period.
 
-    by_symptom: dict[str, dict[date, float]] = defaultdict(dict)
+    The scale is 1-10 and patients leave a symptom blank when they didn't notice it.
+    So on a day the patient did a check-in (rated anything), a tracked symptom that
+    was left blank counts as 0 = not noticed. Without this, a symptom that clears up
+    would just stop appearing, and its improvement would never show.
+    Days with no check-in at all stay as missing data.
+
+    A symptom counts as tracked from the first day it was ever rated, and stays
+    tracked through any check-in within TRACKING_WINDOW_DAYS of its latest rating.
+    """
+    lookback = start - timedelta(days=TRACKING_WINDOW_DAYS)
+    logs = session.exec(
+        select(SymptomLog).where(
+            SymptomLog.patient_id == patient_id,
+            SymptomLog.logged_on >= lookback,
+            SymptomLog.logged_on <= end,
+        ).order_by(SymptomLog.logged_on)
+    ).all()
+    # Earliest-ever rating per symptom (may be before the lookback window).
+    first_seen = dict(session.exec(
+        select(SymptomLog.symptom, func.min(SymptomLog.logged_on))
+        .where(SymptomLog.patient_id == patient_id, SymptomLog.logged_on <= end)
+        .group_by(SymptomLog.symptom)
+    ).all())
+
+    checkin_days = sorted({l.logged_on for l in logs if start <= l.logged_on <= end})
+    rated: dict[str, dict[date, float]] = defaultdict(dict)
     for log in logs:
-        by_symptom[log.symptom][log.logged_on] = float(log.severity)
+        rated[log.symptom][log.logged_on] = float(log.severity)
 
+    wanted = {catalog.normalize_symptom_key(x) for x in symptoms} if symptoms else None
     trends: list[SymptomTrend] = []
-    for key, day_map in by_symptom.items():
-        points = sorted(day_map.items())
+    for key, day_map in rated.items():
+        if wanted is not None and key not in wanted:
+            continue
+        rated_days = sorted(day_map)
+        points: list[tuple[date, float]] = []
+        for d in checkin_days:
+            if d < first_seen.get(key, d):
+                continue  # not tracking this symptom yet
+            if d in day_map:
+                points.append((d, day_map[d]))
+                continue
+            last_rating = max((r for r in rated_days if r <= d), default=None)
+            if last_rating is not None and (d - last_rating).days <= TRACKING_WINDOW_DAYS:
+                points.append((d, 0.0))  # checked in, left blank -> not noticed
+        noticed = [v for _, v in points if v > 0]
+        if not noticed and not any(start <= d <= end for d in rated_days):
+            continue  # nothing to report for this symptom in the period
+        if not points:
+            continue
+
         values = [v for _, v in points]
         series = []
         for d, v in points:
             window = [val for dd, val in points if d - timedelta(days=6) <= dd <= d]
-            series.append(SeriesPoint(date=d, value=v, rolling_avg_7d=round(mean(window), 2)))
+            series.append(SeriesPoint(date=d, value=v, noticed=v > 0, rolling_avg_7d=round(mean(window), 2)))
         slope = _slope_per_week(points)
         first_wk = _window_avg(points, start, start + timedelta(days=6))
         last_wk = _window_avg(points, end - timedelta(days=6), end)
@@ -213,8 +259,10 @@ def symptom_trends(
                 symptom=key,
                 label=catalog.symptom_label(key),
                 category=catalog.symptom_category(key),
-                days_logged=len(points),
+                days_tracked=len(points),
+                days_noticed=len(noticed),
                 average=round(mean(values), 2),
+                average_when_noticed=round(mean(noticed), 2) if noticed else None,
                 max=int(max(values)),
                 min=int(min(values)),
                 first_week_avg=first_wk,

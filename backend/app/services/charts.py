@@ -29,9 +29,12 @@ TEXT_SECONDARY = "#52514e"
 GRID = "#e4e3df"
 SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"]
 SEQ_BLUE = ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"]
-NO_DATA = "#f1f0ec"
+NO_DATA = "#e4e3df"  # no check-in that day
+NOT_NOTICED = "#ffffff"  # checked in, symptom left blank
 
-_SEVERITY_CMAP = LinearSegmentedColormap.from_list("severity", SEQ_BLUE).with_extremes(bad=NO_DATA)
+# Scale runs 1-10; 0 (not noticed) falls below vmin and gets the "under" color.
+_SEVERITY_CMAP = LinearSegmentedColormap.from_list("severity", SEQ_BLUE).with_extremes(
+    bad=NO_DATA, under=NOT_NOTICED)
 
 plt.rcParams.update({
     "font.family": "DejaVu Sans",
@@ -70,7 +73,7 @@ def _date_axis(ax, span_days: int) -> None:
 
 
 def symptom_trend_chart(report: SummaryReport, max_series: int = 5) -> bytes | None:
-    """7-day rolling average for the most severe symptoms. One axis, 0-10."""
+    """7-day rolling average for the most severe symptoms. One axis, severity 1-10."""
     series = [s for s in report.symptoms.symptoms if s.series][:max_series]
     if not series:
         return None
@@ -81,7 +84,7 @@ def symptom_trend_chart(report: SummaryReport, max_series: int = 5) -> bytes | N
         ax.plot(xs, [p.rolling_avg_7d for p in s.series], "-", color=SERIES[i], linewidth=2, label=s.label)
     ax.set_ylim(0, 10.3)
     ax.set_xlim(report.start, report.end + timedelta(days=1))
-    ax.set_ylabel("Severity (0-10)")
+    ax.set_ylabel("Severity (1-10, 0 = not noticed)")
     ax.grid(axis="y", color=GRID, linewidth=0.6)
     _date_axis(ax, report.days_in_period)
     ax.set_title("Symptom severity - 7-day rolling average")
@@ -97,7 +100,6 @@ def symptom_heatmap(report: SummaryReport, max_rows: int = 25) -> bytes | None:
     days = date_range(report.start, report.end)
     idx = {d: i for i, d in enumerate(days)}
 
-
     grid = np.full((len(rows), len(days)), np.nan)
     for r, s in enumerate(rows):
         for p in s.series:
@@ -105,7 +107,7 @@ def symptom_heatmap(report: SummaryReport, max_rows: int = 25) -> bytes | None:
     masked = np.ma.masked_invalid(grid)
 
     fig, ax = plt.subplots(figsize=(7.2, 0.32 * len(rows) + 1.2))
-    im = ax.imshow(masked, aspect="auto", cmap=_SEVERITY_CMAP, vmin=0, vmax=10, interpolation="nearest")
+    im = ax.imshow(masked, aspect="auto", cmap=_SEVERITY_CMAP, vmin=1, vmax=10, interpolation="nearest")
     ax.set_yticks(range(len(rows)), [s.label for s in rows])
     step = max(1, len(days) // 8)
     ticks = list(range(0, len(days), step))
@@ -120,7 +122,7 @@ def symptom_heatmap(report: SummaryReport, max_rows: int = 25) -> bytes | None:
     cbar = fig.colorbar(im, ax=ax, fraction=0.03, pad=0.02)
     cbar.set_label("Severity", color=TEXT_SECONDARY)
     cbar.outline.set_visible(False)
-    ax.set_title("Daily symptom log (gray = not logged)")
+    ax.set_title("Daily symptom log (white = not noticed, gray = no check-in)")
     return _to_png(fig)
 
 

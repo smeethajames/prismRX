@@ -27,8 +27,10 @@ from app.models import (
 DAYS = 45
 
 
-def _clamp(v: float) -> int:
-    return max(0, min(10, round(v)))
+def _clamp(v: float) -> int | None:
+    """1-10, or None when the symptom wouldn't have been noticed (left blank)."""
+    sev = min(10, round(v))
+    return sev if sev >= 1 else None
 
 
 def seed(session: Session, today: date | None = None, rng: random.Random | None = None) -> Patient:
@@ -72,6 +74,8 @@ def seed(session: Session, today: date | None = None, rng: random.Random | None 
                 "hoarseness": 3 - 2.5 * progress + rng.gauss(0, 0.5),
             }
             for key, val in symptoms.items():
+                if _clamp(val) is None:
+                    continue  # not noticed -> not logged
                 note = None
                 if key == "tingling" and val > 5.5:
                     note = "Tingling around lips in the evening"

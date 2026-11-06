@@ -2,9 +2,10 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { colors, radius, space } from "@/theme";
 
-const LEVELS = Array.from({ length: 11 }, (_, i) => i);
+// 1-10 on purpose: there is no 0. Not noticing a symptom means leaving it blank.
+const LEVELS = Array.from({ length: 10 }, (_, i) => i + 1);
 
-/** 0-10 severity picker. Tapping the selected value again clears it. */
+/** 1-10 severity picker. Tapping the selected value again clears it (back to blank). */
 export function SeverityScale({
   label,
   value,
@@ -15,7 +16,7 @@ export function SeverityScale({
   onChange: (v: number | null) => void;
 }) {
   return (
-    <View accessibilityRole="radiogroup" accessibilityLabel={`${label} severity, 0 to 10`}>
+    <View accessibilityRole="radiogroup" accessibilityLabel={`${label} severity, 1 to 10`}>
       <View style={styles.row}>
         {LEVELS.map((n) => {
           const selected = value === n;
@@ -34,7 +35,7 @@ export function SeverityScale({
         })}
       </View>
       <View style={styles.ends}>
-        <Text style={styles.endLabel}>None</Text>
+        <Text style={styles.endLabel}>Low</Text>
         <Text style={styles.endLabel}>Worst</Text>
       </View>
     </View>

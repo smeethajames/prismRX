@@ -46,7 +46,7 @@ export function SymptomCheckIn({
   return (
     <View style={{ gap: space.lg }}>
       <Text style={text.label}>
-        Rate each symptom from 0 (none) to 10 (worst). Leave blank if you didn&apos;t notice it.
+        Rate each symptom from 1 (low) to 10 (worst). Leave it blank if you didn&apos;t notice it.
       </Text>
 
       {tracked.map((key) => {
