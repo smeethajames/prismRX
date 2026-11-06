@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlmodel import select
 
 from ..deps import PatientDep, SessionDep
+from ..services.schedule import DaySchedule, day_schedule
 from ..models import (
     DoseLog,
     DoseLogCreate,
@@ -68,6 +69,15 @@ def delete_medication(med_id: int, patient: PatientDep, session: SessionDep):
         session.delete(d)
     session.delete(med)
     session.commit()
+
+
+# ----------------------------------------------------------------------- schedule
+@router.get("/schedule", response_model=DaySchedule)
+def get_day_schedule(patient: PatientDep, session: SessionDep, day: Annotated[
+        date | None, Query(alias="date", description="Defaults to today (server local time)")] = None):
+    """Every scheduled dose for one day with its status (taken / skipped / missed /
+    overdue / upcoming), plus as-needed medications. Powers the app's Today screen."""
+    return day_schedule(session, patient.id, day or date.today())
 
 
 # --------------------------------------------------------------------- dose logs

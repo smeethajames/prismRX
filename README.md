@@ -2,7 +2,10 @@
 
 PrismRX helps thyroid cancer and post-thyroidectomy patients track daily symptoms, medications and labs, then turns that data into a summary report they can bring to their doctor.
 
-This repo holds the **MVP backend**: a FastAPI service with trend analytics and a PDF report that includes charts. The mobile app comes later (see [Mobile frontend](#mobile-frontend)) and will talk to this API.
+This repo holds two parts:
+
+- **`backend/`**: a FastAPI service with trend analytics and a PDF report that includes charts.
+- **`mobile/`**: an Expo (React Native + TypeScript) app. The **Today** screen works: mark doses taken or skipped, and do the daily symptom check-in. **Trends** and **Report** are placeholders for now.
 
 ```
 prismRX/
@@ -16,13 +19,20 @@ prismRX/
 │   │   └── services/
 │   │       ├── trends.py      # symptom trends, adherence, dose-timing flags, labs
 │   │       ├── summary.py     # doctor report (JSON) + plain-language observations
+│   │       ├── schedule.py    # today's dose slots + status (Today screen)
 │   │       ├── charts.py      # matplotlib charts (PNG)
 │   │       └── report_pdf.py  # ReportLab PDF
 │   ├── scripts/
 │   │   ├── seed_demo.py       # 45 days of realistic demo data
 │   │   └── export_openapi.py  # writes openapi.json for client codegen
 │   └── tests/
-└── mobile/                    # (future) Expo app
+└── mobile/                    # Expo app (SDK 58, Expo Router)
+    └── src/
+        ├── app/               # screens: index (Today), trends, report, _layout (tabs)
+        ├── api/               # typed client (openapi-fetch) + generated schema.d.ts
+        ├── components/        # DoseList, SymptomCheckIn, SeverityScale, Card, Button
+        ├── lib/dates.ts       # local-time helpers (the backend stores local wall-clock time)
+        └── theme.ts           # placeholder design tokens
 ```
 
 ## Quick start
@@ -74,6 +84,7 @@ Configuration uses environment variables:
 | CRUD | `/patients/{id}/medications[/{med_id}]` | Medications |
 | POST/GET/DELETE | `/patients/{id}/doses[/{dose_id}]` | Pill intake log |
 | POST/GET/DELETE | `/patients/{id}/labs[/{lab_id}]` | Lab results |
+| GET | `/patients/{id}/schedule?date=` | One day's dose slots: taken / skipped / missed / overdue / upcoming, plus as-needed meds and calcium-timing notes |
 | GET | `/patients/{id}/trends/symptoms` | Daily series, 7-day rolling average, stats, direction (improving / worsening / stable) |
 | GET | `/patients/{id}/trends/adherence` | Adherence per medication and per day, plus dose-timing flags |
 | GET | `/patients/{id}/trends/labs` | Lab series and latest values with out-of-range flags |
@@ -111,13 +122,24 @@ Every trends and reports endpoint accepts a time window in one of two ways: `?st
 
 Either works. Expo wins for an MVP because of typed client generation from the OpenAPI schema, OTA updates while you iterate on UX, and the JS ecosystem. Flutter is the better choice if you want pixel-identical custom UI on both platforms and are comfortable with Dart.
 
-### Connecting a mobile app
+### Running the mobile app
+
+Requires **Node 22.13+** (Expo SDK 58) and the backend running.
 
 ```bash
-cd backend
-python -m scripts.export_openapi                     # -> backend/openapi.json
-npx openapi-typescript openapi.json -o ../mobile/src/api/schema.d.ts
+cd mobile
+npm install
+cp .env.example .env.local      # set EXPO_PUBLIC_API_URL and EXPO_PUBLIC_PATIENT_ID
+npx expo start                  # press w for web, or scan the QR code with Expo Go
 ```
+
+Until there are accounts, the app acts as the one patient set in `EXPO_PUBLIC_PATIENT_ID`. After any backend API change, regenerate the typed client:
+
+```bash
+cd backend && python -m scripts.export_openapi && cd ../mobile && npm run api:types
+```
+
+Before calling a change done, run `npm run typecheck` and `npx expo lint`.
 
 - Run uvicorn with `--host 0.0.0.0` so phones on your network can reach it.
 - **Android emulator:** use `http://10.0.2.2:8000`. **iOS simulator:** `http://127.0.0.1:8000`. **Physical device:** `http://<your-LAN-IP>:8000`.
