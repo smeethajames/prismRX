@@ -120,7 +120,8 @@ npx openapi-typescript openapi.json -o ../mobile/src/api/schema.d.ts
 ```
 
 - Run uvicorn with `--host 0.0.0.0` so phones on your network can reach it.
-- **Android emulator:** use `http://10.0.2.2:8000`. **iOS simulator:** `http://localhost:8000`. **Physical device:** `http://<your-LAN-IP>:8000`.
+- **Android emulator:** use `http://10.0.2.2:8000`. **iOS simulator:** `http://127.0.0.1:8000`. **Physical device:** `http://<your-LAN-IP>:8000`.
+- On Windows, call `127.0.0.1` rather than `localhost` from scripts and tools. `localhost` can add about 2 seconds per request while the IPv6 lookup times out.
 - Draw charts natively from the `/trends/*` JSON so they stay interactive. Use `/reports/pdf` only for sharing.
 
 Suggested screens: **Today** (check-in form + "mark dose taken"), **Meds**, **Labs**, **Trends** (7/30/90-day toggle), and **Report** (preview from `/reports/summary`, share the PDF).

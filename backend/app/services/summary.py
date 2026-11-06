@@ -75,7 +75,7 @@ def build_summary(session: Session, patient: Patient, start: date, end: date) ->
         symptoms=sym,
         adherence=adh,
         labs=labs,
-        notable_entries=notable[-25:],
+        notable_entries=notable,  # never truncated: every note the patient wrote reaches the doctor
     )
 
 
@@ -99,6 +99,11 @@ def _observations(
         out.append("Trending worse over the period: " + ", ".join(worse) + ".")
     if better:
         out.append("Trending better over the period: " + ", ".join(better) + ".")
+    flares = [s for s in sym.symptoms if s.flare]
+    if flares:
+        out.append("Temporary flare-ups mid-period: " + ", ".join(
+            f"{s.label} (7-day average peaked at {s.peak_rolling_avg:g}/10 around {s.peak_date:%b %d})"
+            for s in flares) + ".")
 
     calcium_flags = [s.label for s in sym.symptoms
                      if s.symptom in catalog.HYPOCALCEMIA_SYMPTOMS and s.max >= 5]

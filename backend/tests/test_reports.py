@@ -57,3 +57,38 @@ def test_report_endpoints(client, session):
     assert p.status_code == 200 and "attachment" in p.headers["content-disposition"]
     c = client.get(f"{base}/reports/charts/heatmap.png", params=params)
     assert c.status_code == 200 and c.headers["content-type"] == "image/png"
+
+
+def test_ref_range_formatting():
+    from app.services.report_pdf import _ref_range
+
+    assert _ref_range(0.4, 4.0) == "0.4 - 4"
+    assert _ref_range(None, 4.0) == "< 4"
+    assert _ref_range(30.0, None) == "> 30"
+    assert _ref_range(None, None) == "-"
+
+
+def test_lab_chart_includes_every_test(session, monkeypatch):
+    """All lab tests get a panel (previously only the first 4 did)."""
+    from app.models import LabResult, LabTest, Patient
+
+    p = Patient(name="Labs")
+    session.add(p)
+    session.flush()
+    tests = [t for t in LabTest if t != LabTest.other]
+    for t in tests:
+        session.add(LabResult(patient_id=p.id, test=t, value=1.0, collected_on=TODAY))
+    session.commit()
+    report = build_summary(session, p, TODAY - timedelta(days=29), TODAY)
+    assert len(report.labs.labs) == len(tests)
+
+    panels = []
+    real_subplots = charts.plt.subplots
+
+    def spy(nrows, ncols, **kw):
+        panels.append(nrows * ncols)
+        return real_subplots(nrows, ncols, **kw)
+
+    monkeypatch.setattr(charts.plt, "subplots", spy)
+    assert charts.lab_chart(report).startswith(b"\x89PNG")
+    assert panels[0] >= len(tests)

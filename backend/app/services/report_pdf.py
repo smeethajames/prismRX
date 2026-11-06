@@ -71,6 +71,16 @@ def _fmt(v: float | None) -> str:
     return "-" if v is None else f"{v:g}"
 
 
+def _ref_range(lo: float | None, hi: float | None) -> str:
+    if lo is not None and hi is not None:
+        return f"{lo:g} - {hi:g}"
+    if hi is not None:
+        return f"< {hi:g}"
+    if lo is not None:
+        return f"> {lo:g}"
+    return "-"
+
+
 def render_pdf(report: SummaryReport) -> bytes:
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -121,10 +131,13 @@ def render_pdf(report: SummaryReport) -> bytes:
         rows = [["Symptom", "Avg", "Max", "Days logged", "First week", "Last week", "Trend"]]
         for s in sym:
             rows.append([s.label, f"{s.average:g}", str(s.max), str(s.days_logged),
-                         _fmt(s.first_week_avg), _fmt(s.last_week_avg), DIRECTION_LABEL[s.direction]])
+                         _fmt(s.first_week_avg), _fmt(s.last_week_avg),
+                         DIRECTION_LABEL[s.direction]
+                         + (f"; flare ~{s.peak_date:%b %d}" if s.flare else "")])
         story.append(_table(rows, [1.9 * inch, 0.6 * inch, 0.6 * inch, 0.9 * inch, 0.9 * inch, 0.9 * inch, 1.2 * inch]))
         story.append(Paragraph("Severity is self-reported on a 0-10 scale (0 = none). "
-                               "Trend = slope of daily entries across the period.", SMALL))
+                               "Trend = slope of daily entries across the period. "
+                               "Flare = the 7-day average rose 2+ points above both the first and last week.", SMALL))
     else:
         story.append(Paragraph("No symptoms were logged in this period.", BODY))
 
@@ -159,15 +172,14 @@ def render_pdf(report: SummaryReport) -> bytes:
 
     # Labs
     if report.labs.labs:
-        story.append(Paragraph("Lab results", H2))
+        heading = Paragraph("Lab results", H2)
         img = _chart(charts.lab_chart(report))
-        if img:
-            story += [img, Spacer(1, 6)]
+        # Keep the heading on the same page as the (tall) chart.
+        story.append(KeepTogether([heading, img, Spacer(1, 6)]) if img else heading)
         rows = [["Test", "Date", "Value", "Reference range"]]
         for lab in report.labs.labs:
             for pt in lab.series:
-                ref = (f"{_fmt(pt.reference_low)} - {_fmt(pt.reference_high)}"
-                       if pt.reference_low is not None or pt.reference_high is not None else "-")
+                ref = _ref_range(pt.reference_low, pt.reference_high)
                 flag = " *" if pt.out_of_range else ""
                 rows.append([lab.label, f"{pt.date:%b %d, %Y}", f"{pt.value:g} {pt.unit or ''}{flag}", ref])
         story.append(_table(rows, [2.0 * inch, 1.5 * inch, 1.8 * inch, 1.7 * inch]))

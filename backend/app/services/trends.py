@@ -30,6 +30,10 @@ from ..models import (
 TREND_THRESHOLD_PER_WEEK = 0.5
 TREND_THRESHOLD_WEEK_DELTA = 1.5
 MIN_POINTS_FOR_TREND = 3
+# A "flare" is a temporary rise in the middle of the period that start-vs-end
+# comparisons miss: the 7-day average peaks this many points above BOTH the first
+# and the last week's averages.
+FLARE_THRESHOLD = 2.0
 
 
 # --------------------------------------------------------------------- schemas
@@ -51,6 +55,9 @@ class SymptomTrend(BaseModel):
     last_week_avg: float | None
     slope_per_week: float | None
     direction: str  # improving | worsening | stable | insufficient_data
+    peak_rolling_avg: float | None = None
+    peak_date: date | None = None
+    flare: bool = False  # temporary mid-period rise; see FLARE_THRESHOLD
     series: list[SeriesPoint]
 
 
@@ -194,6 +201,13 @@ def symptom_trends(
         slope = _slope_per_week(points)
         first_wk = _window_avg(points, start, start + timedelta(days=6))
         last_wk = _window_avg(points, end - timedelta(days=6), end)
+        # Only full 7-day windows count toward the peak, so one bad first day isn't a "peak".
+        full = [p for p in series if p.date >= start + timedelta(days=6)]
+        peak = max(full, key=lambda p: p.rolling_avg_7d) if full else None
+        flare = bool(
+            peak and first_wk is not None and last_wk is not None
+            and peak.rolling_avg_7d >= max(first_wk, last_wk) + FLARE_THRESHOLD
+        )
         trends.append(
             SymptomTrend(
                 symptom=key,
@@ -207,6 +221,9 @@ def symptom_trends(
                 last_week_avg=last_wk,
                 slope_per_week=slope,
                 direction=_direction(slope, first_wk, last_wk),
+                peak_rolling_avg=peak.rolling_avg_7d if peak else None,
+                peak_date=peak.date if peak else None,
+                flare=flare,
                 series=series,
             )
         )

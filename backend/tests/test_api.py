@@ -122,3 +122,44 @@ def test_period_validation(client, patient_id):
     assert client.get(url, params={"start": "2026-10-10", "end": "2026-10-01"}).status_code == 422
     r = client.get(url, params={"days": 7, "end": "2026-10-07"}).json()
     assert r["start"] == "2026-10-01"
+
+
+def test_mid_period_flare_detected(client, patient_id):
+    # Low at the start and end, spike in the middle: start-vs-end trend is "stable",
+    # but the flare must still be reported.
+    start = date(2026, 10, 1)
+    for i in range(30):
+        sev = 8 if 12 <= i <= 18 else 2
+        client.post(f"{API}/patients/{patient_id}/check-ins", json={
+            "logged_on": str(start + timedelta(days=i)), "entries": [{"symptom": "fatigue", "severity": sev}]})
+    r = client.get(f"{API}/patients/{patient_id}/trends/symptoms",
+                   params={"start": "2026-10-01", "end": "2026-10-30"}).json()
+    fatigue = r["symptoms"][0]
+    assert fatigue["direction"] == "stable"
+    assert fatigue["flare"] is True
+    assert fatigue["peak_rolling_avg"] == 8.0
+    assert fatigue["peak_date"] == "2026-10-19"
+    summary = client.get(f"{API}/patients/{patient_id}/reports/summary",
+                         params={"start": "2026-10-01", "end": "2026-10-30"}).json()
+    assert any("flare" in o for o in summary["observations"])
+
+
+def test_steady_symptom_is_not_a_flare(client, patient_id):
+    start = date(2026, 10, 1)
+    for i in range(20):
+        client.post(f"{API}/patients/{patient_id}/check-ins", json={
+            "logged_on": str(start + timedelta(days=i)), "entries": [{"symptom": "headache", "severity": 4}]})
+    r = client.get(f"{API}/patients/{patient_id}/trends/symptoms",
+                   params={"start": "2026-10-01", "end": "2026-10-20"}).json()
+    assert r["symptoms"][0]["flare"] is False
+
+
+def test_all_notes_kept_in_summary(client, patient_id):
+    start = date(2026, 1, 1)
+    for i in range(40):
+        client.post(f"{API}/patients/{patient_id}/symptoms", json={
+            "symptom": "fatigue", "severity": 3, "logged_on": str(start + timedelta(days=i)), "notes": f"note {i}"})
+    s = client.get(f"{API}/patients/{patient_id}/reports/summary",
+                   params={"start": "2026-01-01", "end": "2026-02-09"}).json()
+    assert len(s["notable_entries"]) == 40
+    assert s["notable_entries"][0]["notes"] == "note 0"

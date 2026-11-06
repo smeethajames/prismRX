@@ -89,7 +89,7 @@ def symptom_trend_chart(report: SummaryReport, max_series: int = 5) -> bytes | N
     return _to_png(fig)
 
 
-def symptom_heatmap(report: SummaryReport, max_rows: int = 12) -> bytes | None:
+def symptom_heatmap(report: SummaryReport, max_rows: int = 25) -> bytes | None:
     """Day-by-day severity grid; shows clustering and gaps that averages hide."""
     rows = [s for s in report.symptoms.symptoms if s.series][:max_rows]
     if not rows:
@@ -147,8 +147,9 @@ def adherence_chart(report: SummaryReport, target_pct: float = 90.0) -> bytes | 
     return _to_png(fig)
 
 
-def lab_chart(report: SummaryReport, max_tests: int = 4) -> bytes | None:
-    """Small multiples, one test per panel, so each keeps its own honest scale."""
+def lab_chart(report: SummaryReport, max_tests: int = 10) -> bytes | None:
+    """Small multiples, one test per panel, so each keeps its own honest scale.
+    Every panel shares the report's date range so the panels line up in time."""
     labs = [l for l in report.labs.labs if l.series][:max_tests]
     if not labs:
         return None
@@ -163,6 +164,10 @@ def lab_chart(report: SummaryReport, max_tests: int = 4) -> bytes | None:
         lo, hi = lab.series[-1].reference_low, lab.series[-1].reference_high
         if lo is not None and hi is not None:
             ax.axhspan(lo, hi, color=SEQ_BLUE[0], alpha=0.6, linewidth=0, label="Reference range")
+        else:  # one-sided range: draw the single limit as a dashed line
+            for limit in (lo, hi):
+                if limit is not None:
+                    ax.axhline(limit, color=TEXT_SECONDARY, linestyle="--", linewidth=1)
         ax.plot(xs, ys, "-o", color=SERIES[0], linewidth=2, markersize=6,
                 markeredgecolor=SURFACE, markeredgewidth=1.5)
         last = lab.series[-1]
@@ -174,7 +179,8 @@ def lab_chart(report: SummaryReport, max_tests: int = 4) -> bytes | None:
         ax.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=2, maxticks=4))
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
         ax.tick_params(axis="x", labelsize=7)
-        ax.margins(x=0.15)
+        pad = timedelta(days=max(2, report.days_in_period // 12))
+        ax.set_xlim(report.start - pad, report.end + pad)
     fig.tight_layout()
     return _to_png(fig)
 
